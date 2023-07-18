@@ -9,3 +9,5 @@ runs/detect/object_tracking/2 GÜZELBAHÇE GİRİŞİ.mp4
 runs/detect/object_tracking/1 DEMİRKÖPRÜ KAVŞAĞI.mp4
 best.pt
 source/traffic.mp4
+results/21 DENİZMEN KAVŞAĞI.json
+runs/detect/object_tracking/23 İSLAM ENSTİTÜSÜ KAVŞAĞI.mp4
