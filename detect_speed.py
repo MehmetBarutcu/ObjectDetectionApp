@@ -22,6 +22,7 @@ from sort import *
 import time
 
 import json
+import datetime
 
 #............................... Tracker Functions ............................
 
@@ -29,10 +30,7 @@ import json
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 
 #area = [(552,505),(560,660),(1211,552),(1127,490)]
-area = [(201,831),(285,965),(1691,481),(1545,413)]
-
-#Tracking vehicles
-vehicle_set = set()
+#area = [(201,831),(285,965),(1691,481),(1545,413)]
 
 def draw_counting_area(area,img,color):
     cv2.polylines(img, [area], True, color, 2)
@@ -55,7 +53,7 @@ def compute_color_for_labels(label):
     return tuple(color)
 
 
-def count_vehicles(bbox, identities, names, categories, area, v_count, offset=(0,0)):
+def count_vehicles(bbox, identities, names, categories, area, v_count, idx, vehicle_set, last_n_sec_det, offset=(0,0)):
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
@@ -65,10 +63,11 @@ def count_vehicles(bbox, identities, names, categories, area, v_count, offset=(0
         center = (int((box[0]+box[2])/2),(int((box[1]+box[3])/2)))
         result = int(cv2.pointPolygonTest(np.array(area,np.int32),(center[0],center[1]),False))
         if result >=0 and identities[i] not in vehicle_set:
+            last_n_sec_det.add(identities[i])
             vehicle_set.add(identities[i])
-            v_count[names[int(categories[i])]] +=1
+            v_count[idx][names[int(categories[i])]] +=1
         #cv2.pointPolygonTest(np.array(start_area,np.int32),(int(midpoint_x),int(midpoint_y)),False)
-    return v_count
+    return v_count, vehicle_set, last_n_sec_det
             
 """Function to Draw Bounding boxes"""
 def draw_boxes(img, bbox, categories=None, identities=None, names=None, offset=(0, 0)):
@@ -154,9 +153,14 @@ def detect(save_img=False):
     files = []
 
     t0 = time.time()
+
+    # Initilize vehicle set
+    # Tracking vehicles
+    vehicle_set = set()
+    last_n_sec_det = set()
     for path, img, im0s, vid_cap in dataset:
         fps = vid_cap.get(cv2.CAP_PROP_FPS)
-        f_name = path.split('\\')[-1]
+        f_name = path.split('\\')[-1].replace('.mp4','')
 
         # Last frame for interval
         max_frame = fps*60*minute
@@ -173,17 +177,45 @@ def detect(save_img=False):
             # İnitilize counter for interval
             interval = 1
 
+            # Number of polygones in video
+            npol = len(coordinates[f_name])
+
             # İnitilize for counting dictionary
-            v_count = {name:0 for name in names}
+            v_count = [{name:0 for name in names} for _ in range(npol)]
+
+            # Counter for last n sec detections
+            last_n = 5*fps
+                
+        # Reset vehicle set with 5 sec buffer
+        if interval % 3 == 0 and frame == ((max_frame*(interval-1))+(5*fps)):
+            vehicle_set = last_n_sec_det.copy()
+
+        if frame == last_n:
+            last_n_sec_det = set()
+            last_n *= 5 
         
         if frame > max_frame*interval:
+            start_time = datetime.timedelta(minutes=(interval-1)*minute)
+            end_time = datetime.timedelta(minutes=(interval)*minute)
+
+            start_time = datetime.datetime.strptime(str(start_time),'%H:%M:%S').strftime('%H:%M:%S')
+            end_time = datetime.datetime.strptime(str(end_time),'%H:%M:%S').strftime('%H:%M:%S')
+
             obj = {
-                 'start_time':(interval-1)*minute,
-                 'end_time': interval*minute,
+                 'start_time':start_time,
+                 'end_time': end_time,
                  'result': v_count
                   }
+            # Append results
             results.append(obj)
-            v_count = {name:0 for name in names}
+
+            # Number of polygones in video
+            npol = len(coordinates[f_name])
+
+            # Reset vehicle count for next interval
+            v_count = [{name:0 for name in names} for _ in range(npol)]
+
+            # Increment interval
             interval +=1
 
         img = torch.from_numpy(img).to(device)
@@ -254,25 +286,25 @@ def detect(save_img=False):
                     identities = tracked_dets[:, 8]
                     categories = tracked_dets[:, 4]
                     #print(categories)
-                    v_count = count_vehicles(bbox_xyxy,identities,names,categories,area,v_count)
+                    color = (0,255,0)
+                    for idx,area in enumerate(coordinates[f_name].values()):
+                        v_count, vehicle_set, last_n_sec_det = count_vehicles(bbox_xyxy,identities,names,categories,area,v_count,idx, vehicle_set, last_n_sec_det)
+                        draw_counting_area(np.array(area,np.int32),im0,color)
                     draw_boxes(im0, bbox_xyxy, categories, identities, names)
                     #print('Bbox xy count : '+str(len(bbox_xyxy)))
-                    print('vehicle count : '+str(v_count))                
+                    #print('vehicle count : '+str(v_count))                
                 #........................................................
                 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
-
-            color = (0,255,0)
-            area2 = np.array([[(201,831),(285,965),(1691,481),(1545,413)]],np.int32)
-            draw_counting_area(area2,im0,color)
             
-            
-            thickness = 2
-            fontScale = 1
+            thickness = 1
+            fontScale = 0.5
             font = cv2.FONT_HERSHEY_SIMPLEX
-            org = (160,570)
-            cv2.putText(im0, 'Vehicle Counting = '+str(v_count), org, font, fontScale, color, thickness, cv2.LINE_AA)         
+            org = (100,570)
+            for i,polygon in enumerate(v_count):
+                y = org[1] - (i*20)
+                cv2.putText(im0, f'Poly={i} '+str(polygon), (org[0],y), font, fontScale, color, thickness, cv2.LINE_AA)
 
             # Stream results
             if view_img:
@@ -300,9 +332,14 @@ def detect(save_img=False):
                     vid_writer.write(im0)
 
         if frame == dataset.nframes:
+            start_time = datetime.timedelta(minutes=(interval-1)*minute)
+            end_time = datetime.timedelta(minutes=(interval)*minute)
+
+            start_time = datetime.datetime.strptime(str(start_time),'%H:%M:%S').strftime('%H:%M:%S')
+            end_time = datetime.datetime.strptime(str(end_time),'%H:%M:%S').strftime('%H:%M:%S')          
             obj = {
-                 'start_time':(interval-1)*minute,
-                 'end_time': interval*minute,
+                 'start_time':start_time,
+                 'end_time':end_time,
                  'result': v_count
                   }
             results.append(obj)
@@ -324,7 +361,7 @@ if __name__ == '__main__':
     parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.65, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.60, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
@@ -340,7 +377,23 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--interval', default=5, help= 'minute interval for counting')
+    parser.add_argument('--configfile', help= 'config file for coordinates')
+
     opt = parser.parse_args()
+
+    # Read config file
+    with open(opt.configfile) as f:
+        coordinates = json.load(f)
+
+    # Convert list of coordinates to tuple
+    def convert_list_to_tuple(config):
+        for fname in config.keys():
+            for cname,c in config[fname].items():
+                a = list(map(tuple, c))
+                config[fname][cname] = a
+        return config
+
+    coordinates = convert_list_to_tuple(coordinates)
     
     with torch.no_grad():
         if opt.update:  # update all models (to fix SourceChangeWarning)
