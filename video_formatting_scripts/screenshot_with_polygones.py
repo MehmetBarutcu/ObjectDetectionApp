@@ -5,10 +5,11 @@ import numpy as np
 import os
 import glob
 
-video_path = r'C:\Users\mbarut\Desktop\videos'
-screenshoot_path = r'C:\Users\mbarut\Desktop\sc2'
+video_base_path = r'C:\Users\mbarut\Desktop'
+videos = ['videos_p1','videos_p2','videos_p3']
+screenshoot_path = r'C:\Users\mbarut\Desktop\sc3'
 # Function to take a screenshot of a video frame
-def take_screenshot(video_name,polygones):
+def take_screenshot(video_name,polygones,video_path):
     color = (255, 0, 0)
     thickness = 2
 
@@ -40,14 +41,16 @@ def take_screenshot(video_name,polygones):
         print(f"Failed to take screenshot for {video_name}: {e}")
 
 # Read config file
-with open('config3.json','r') as f:
+with open('config_renewed.json','r',encoding='utf-8') as f:
     config = json.load(f)
 
 # Read the txt file and process each line
-os.chdir(video_path)
-files = glob.glob(f'*.mp4')
-for file in files:
-    file = file.replace('.mp4','')
-    polygones = list(config[file].values())
-    video_name = file
-    take_screenshot(video_name,polygones)
+for video_file in videos:
+    video_path = os.path.join(video_base_path,video_file)
+    os.chdir(os.path.join(video_base_path,video_file))
+    files = glob.glob(f'*.mp4')
+    for file in files:
+        file = file.replace('.mp4','')
+        polygones = list(config[file].values())
+        video_name = file
+        take_screenshot(video_name,polygones, video_path)

@@ -32,6 +32,12 @@ palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
 #area = [(552,505),(560,660),(1211,552),(1127,490)]
 #area = [(201,831),(285,965),(1691,481),(1545,413)]
 
+def replace_turkish_characters(text):
+    turkish_chars = "çÇğĞıİöÖşŞüÜ"
+    english_chars = "cCgGiIoOsSuU"
+    table = str.maketrans(turkish_chars, english_chars)
+    return text.translate(table)
+
 def draw_counting_area(area,img,color):
     cv2.polylines(img, [area], True, color, 2)
 
@@ -161,6 +167,7 @@ def detect(save_img=False):
     for path, img, im0s, vid_cap in dataset:
         fps = vid_cap.get(cv2.CAP_PROP_FPS)
         f_name = path.split('\\')[-1].replace('.mp4','')
+        f_name = replace_turkish_characters(f_name)
 
         # Last frame for interval
         max_frame = fps*60*minute
@@ -343,8 +350,8 @@ def detect(save_img=False):
                  'result': v_count
                   }
             results.append(obj)
-            
-            base = Path('results')
+
+            base = Path(path.split('\\')[-2],increment_path=True, exist_ok = True)
             jsonpath = base / (f_name + ".json")
             base.mkdir(exist_ok=True)
             jsonpath.write_text(json.dumps({'results': results}))
